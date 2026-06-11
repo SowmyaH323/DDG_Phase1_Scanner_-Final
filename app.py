@@ -15,36 +15,27 @@ from utils_ddg import (
 
 st.set_page_config(page_title="ΔΔG Mutation Scanner", layout="wide")
 
-# ---------- Ensemble weights ----------
 W_XGB = 0.45
 W_CNN = 0.35
 W_GNN = 0.20
 
-# ---------- Load models once ----------
 @st.cache_resource
 def load_models():
-    # Force TensorFlow to run in a lightweight, single-threaded mode to prevent freezing
     tf.config.threading.set_inter_op_parallelism_threads(1)
     tf.config.threading.set_intra_op_parallelism_threads(1)
 
-    # This automatically finds the folder where app.py lives
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    
-    # This looks for the files in that exact same folder
+
     xgb_path = os.path.join(BASE_DIR, "xgb_full.json")
     cnn_path = os.path.join(BASE_DIR, "cnn_ddg_model.keras")
     gnn_path = os.path.join(BASE_DIR, "gnn_scripted.pt")
 
-    # XGB
     xgb_model = xgb.XGBRegressor()
     xgb_model.load_model(xgb_path)
 
-    # CNN
     cnn_model = tf.keras.models.load_model(cnn_path)
 
-    # GNN
     device = torch.device("cpu")
-    # Load the TorchScript compiled model object directly
     gnn_model = torch.jit.load(gnn_path, map_location=device)
     gnn_model.eval()
 
@@ -59,7 +50,6 @@ st.caption(
     "positive ΔΔG indicates predicted weakening of protein–protein binding."
 )
 
-# ---------- Sidebar: inputs ----------
 st.sidebar.header("Protein inputs")
 
 fasta_text = st.sidebar.text_area(
@@ -76,10 +66,8 @@ pdb_file = st.sidebar.file_uploader(
 
 chain_id = st.sidebar.text_input("PDB chain ID", value="A")
 
-# parse sequence
 seq = load_fasta_str(fasta_text) if fasta_text else ""
 
-# Precompute contact map + tensors if PDB provided
 M4 = None
 A_hat_t = None
 deg_t = None
@@ -92,18 +80,15 @@ if pdb_file is not None:
     deg = A_hat.sum(axis=1, keepdims=True).astype(np.float32)
 
     A_hat_t = torch.from_numpy(A_hat).float().to(device)
-    deg_t   = torch.from_numpy(deg).float().to(device)
-    
-    # Node features tensor matching your 49 channels layer size
-    node_feat_t = torch.ones((A_hat.shape, 49), dtype=torch.float32, device=device)
+    deg_t = torch.from_numpy(deg).float().to(device)
+
+    node_feat_t = torch.ones((A_hat.shape[0], 49), dtype=torch.float32, device=device)
 
     M128 = to_fixed_128(M)
-    M4   = M128[np.newaxis, ..., np.newaxis]  # shape
+    M4 = M128[np.newaxis, ..., np.newaxis]
 
-# ---------- Tabs ----------
 tab1, tab2 = st.tabs(["Single mutation", "19-AA scan"])
 
-# ---------- TAB 1: single mutation ----------
 with tab1:
     st.subheader("Single mutation prediction")
 
@@ -125,47 +110,56 @@ with tab1:
 
         with col2:
             wt = st.text_input("Wild-type residue", value=wt_default, max_chars=1).upper()
-            mt = st.selectbox(
-                "Mutant residue",
-                [a for a in AA_LIST if a != wt]
-            )
+            mt = st.selectbox("Mutant residue", [a for a in AA_LIST if a != wt])
 
         if st.button("Predict ΔΔG for this mutation"):
             X_num = build_features_single(wt=wt, mt=mt, pos=int(pos))
 
-            # XGB (Fixed with np.asarray and sliced to the 4 expected features)
             X_array = np.asarray(X_num)
-            xgb_pred = float(xgb_model.predict(X_array[:, :4]))
-            
+            xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
+
             preds = [xgb_pred]
             detail = {"XGB": xgb_pred}
 
-            # CNN + GNN only if PDB/contact map available
             if M4 is not None and A_hat_t is not None:
-                # CNN
                 cnn_pred = float(
-                    cnn_model.predict([M4, X_num], verbose=0).reshape(-1)
+                    cnn_model.predict([M4, X_num], verbose=0).reshape(-1)[0]
                 )
                 preds.append(cnn_pred)
                 detail["CNN"] = cnn_pred
 
-                # GNN
-                X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
-                
-                # FIX: Changed size dimension from 128 to 608 to perfectly pass the linear algebra layers check
-                g_esm_placeholder = torch.zeros((608,), dtype=torch.float32, device=device)
-                
-                with torch.no_grad():
-                    gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
-                    gnn_pred = float(gnn_out.item())
-                        
-                preds.append(gnn_pred)
-                detail["GNN"] = gnn_pred
+                try:
+                    X_local_placeholder = torch.ones(
+                        (A_hat_t.shape[0], 49),
+                        dtype=torch.float32,
+                        device=device
+                    )
 
-            # Weighted ensemble if all three models are available;
-            # otherwise use XGB-only prediction.
+                    gnn_aux_placeholder = torch.zeros(
+                        (608,),
+                        dtype=torch.float32,
+                        device=device
+                    )
+
+                    with torch.no_grad():
+                        gnn_out = gnn_model(
+                            A_hat_t,
+                            X_local_placeholder,
+                            gnn_aux_placeholder
+                        )
+                        gnn_pred = float(gnn_out.item())
+
+                    preds.append(gnn_pred)
+                    detail["GNN"] = gnn_pred
+
+                except Exception:
+                    gnn_pred = np.nan
+                    detail["GNN"] = "Unavailable"
+
             if len(preds) == 3:
                 ens = float(W_XGB * xgb_pred + W_CNN * cnn_pred + W_GNN * gnn_pred)
+            elif len(preds) == 2:
+                ens = float((W_XGB * xgb_pred + W_CNN * cnn_pred) / (W_XGB + W_CNN))
             else:
                 ens = float(xgb_pred)
 
@@ -180,7 +174,6 @@ with tab1:
                 "positive ΔΔG → predicted weaker protein–protein binding."
             )
 
-# ---------- TAB 2: 19-AA scan ----------
 with tab2:
     st.subheader("19-amino-acid scan")
 
@@ -211,40 +204,51 @@ with tab2:
 
                     X_num = build_features_single(wt=wt, mt=mt, pos=pos)
 
-                    # XGB (Fixed with np.asarray and sliced to the 4 expected features)
                     X_array = np.asarray(X_num)
-                    xgb_pred = float(xgb_model.predict(X_array[:, :4]))
-                    
+                    xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
+
                     preds = [xgb_pred]
 
-                    # CNN + GNN if structural info available
                     if M4 is not None and A_hat_t is not None:
-                        # CNN
                         cnn_pred = float(
-                            cnn_model.predict([M4, X_num], verbose=0).reshape(-1)
+                            cnn_model.predict([M4, X_num], verbose=0).reshape(-1)[0]
                         )
                         preds.append(cnn_pred)
 
-                        # GNN
-                        X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
-                        
-                        # FIX: Changed size dimension from 128 to 608 to perfectly pass the linear algebra layers check
-                        g_esm_placeholder = torch.zeros((608,), dtype=torch.float32, device=device)
-                        
-                        with torch.no_grad():
-                            gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
-                            gnn_pred = float(gnn_out.item())
-                                
-                        preds.append(gnn_pred)
+                        try:
+                            X_local_placeholder = torch.ones(
+                                (A_hat_t.shape[0], 49),
+                                dtype=torch.float32,
+                                device=device
+                            )
+
+                            gnn_aux_placeholder = torch.zeros(
+                                (608,),
+                                dtype=torch.float32,
+                                device=device
+                            )
+
+                            with torch.no_grad():
+                                gnn_out = gnn_model(
+                                    A_hat_t,
+                                    X_local_placeholder,
+                                    gnn_aux_placeholder
+                                )
+                                gnn_pred = float(gnn_out.item())
+
+                            preds.append(gnn_pred)
+
+                        except Exception:
+                            gnn_pred = np.nan
 
                     else:
                         cnn_pred = np.nan
                         gnn_pred = np.nan
 
-                    # Weighted ensemble if all three models are available;
-                    # otherwise use XGB-only prediction.
                     if len(preds) == 3:
                         ens = float(W_XGB * xgb_pred + W_CNN * cnn_pred + W_GNN * gnn_pred)
+                    elif len(preds) == 2:
+                        ens = float((W_XGB * xgb_pred + W_CNN * cnn_pred) / (W_XGB + W_CNN))
                     else:
                         ens = float(xgb_pred)
 
@@ -261,9 +265,12 @@ with tab2:
                         "Ensemble_ddG": ens,
                         "ensemble_std": std
                     })
-            
-            # Show scanning dataframe table when calculation loop concludes
+
+            df_scan = pd.DataFrame(rows)
+            df_scan = df_scan.sort_values("Ensemble_ddG").reset_index(drop=True)
+            df_scan.insert(0, "Rank", range(1, len(df_scan) + 1))
+
             st.markdown("### Scan Results Summary")
-            st.dataframe(pd.DataFrame(rows))
+            st.dataframe(df_scan)
 
 
