@@ -1,0 +1,13 @@
+streamlit
+numpy
+pandas
+biopython
+xgboost
+torch
+tensorflow
+scikit-learn
+py3Dmol
+matplotlib
+xgboost==2.0.3
+
+
