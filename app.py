@@ -93,7 +93,9 @@ if pdb_file is not None:
 
     A_hat_t = torch.from_numpy(A_hat).float().to(device)
     deg_t   = torch.from_numpy(deg).float().to(device)
-    node_feat_t = torch.ones((A_hat.shape[0], 1), dtype=torch.float32, device=device)
+    
+    # FIX: Changed width from 1 to 49 to satisfy the GNN structural input shapes
+    node_feat_t = torch.ones((A_hat.shape[0], 49), dtype=torch.float32, device=device)
 
     M128 = to_fixed_128(M)
     M4   = M128[np.newaxis, ..., np.newaxis]  # shape
@@ -133,7 +135,7 @@ with tab1:
 
             # XGB (Fixed with np.asarray and sliced to the 4 expected features)
             X_array = np.asarray(X_num)
-            xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
+            xgb_pred = float(xgb_model.predict(X_array[:, :4]))
             
             preds = [xgb_pred]
             detail = {"XGB": xgb_pred}
@@ -142,7 +144,7 @@ with tab1:
             if M4 is not None and A_hat_t is not None:
                 # CNN
                 cnn_pred = float(
-                    cnn_model.predict([M4, X_num], verbose=0).reshape(-1)[0]
+                    cnn_model.predict([M4, X_num], verbose=0).reshape(-1)
                 )
                 preds.append(cnn_pred)
                 detail["CNN"] = cnn_pred
@@ -150,7 +152,8 @@ with tab1:
                 # GNN
                 xg_t = torch.from_numpy(X_num).float().to(device)
                 with torch.no_grad():
-                    gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t)
+                    # Flatten feature input vector to 1D if necessary
+                    gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t.view(-1))
                     gnn_pred = float(gnn_out.item())
                 preds.append(gnn_pred)
                 detail["GNN"] = gnn_pred
@@ -206,7 +209,7 @@ with tab2:
 
                     # XGB (Fixed with np.asarray and sliced to the 4 expected features)
                     X_array = np.asarray(X_num)
-                    xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
+                    xgb_pred = float(xgb_model.predict(X_array[:, :4]))
                     
                     preds = [xgb_pred]
 
@@ -214,14 +217,14 @@ with tab2:
                     if M4 is not None and A_hat_t is not None:
                         # CNN
                         cnn_pred = float(
-                            cnn_model.predict([M4, X_num], verbose=0).reshape(-1)[0]
+                            cnn_model.predict([M4, X_num], verbose=0).reshape(-1)
                         )
                         preds.append(cnn_pred)
 
                         # GNN
                         xg_t = torch.from_numpy(X_num).float().to(device)
                         with torch.no_grad():
-                            gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t)
+                            gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t.view(-1))
                             gnn_pred = float(gnn_out.item())
                         preds.append(gnn_pred)
 
@@ -249,3 +252,8 @@ with tab2:
                         "Ensemble_ddG": ens,
                         "ensemble_std": std
                     })
+            
+            # Show scanning dataframe table when calculation loop concludes
+            st.markdown("### Scan Results Summary")
+            st.dataframe(pd.DataFrame(rows))
+
