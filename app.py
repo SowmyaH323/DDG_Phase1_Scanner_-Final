@@ -96,7 +96,7 @@ if pdb_file is not None:
     node_feat_t = torch.ones((A_hat.shape[0], 1), dtype=torch.float32, device=device)
 
     M128 = to_fixed_128(M)
-    M4   = M128[np.newaxis, ..., np.newaxis]  # shape [1,128,128,1]
+    M4   = M128[np.newaxis, ..., np.newaxis]  # shape
 
 # ---------- Tabs ----------
 tab1, tab2 = st.tabs(["Single mutation", "19-AA scan"])
@@ -131,9 +131,9 @@ with tab1:
         if st.button("Predict ΔΔG for this mutation"):
             X_num = build_features_single(wt=wt, mt=mt, pos=int(pos))
 
-            # XGB (Fixed with np.asarray)
+            # XGB (Fixed with np.asarray and sliced to the 4 expected features)
             X_array = np.asarray(X_num)
-            xgb_pred = float(xgb_model.predict(X_array)[0])
+            xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
             
             preds = [xgb_pred]
             detail = {"XGB": xgb_pred}
@@ -148,7 +148,7 @@ with tab1:
                 detail["CNN"] = cnn_pred
 
                 # GNN
-                xg_t = torch.from_numpy(X_num[0]).float().to(device)
+                xg_t = torch.from_numpy(X_num).float().to(device)
                 with torch.no_grad():
                     gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t)
                     gnn_pred = float(gnn_out.item())
@@ -204,9 +204,9 @@ with tab2:
 
                     X_num = build_features_single(wt=wt, mt=mt, pos=pos)
 
-                    # XGB (Fixed with np.asarray)
+                    # XGB (Fixed with np.asarray and sliced to the 4 expected features)
                     X_array = np.asarray(X_num)
-                    xgb_pred = float(xgb_model.predict(X_array)[0])
+                    xgb_pred = float(xgb_model.predict(X_array[:, :4])[0])
                     
                     preds = [xgb_pred]
 
@@ -219,7 +219,7 @@ with tab2:
                         preds.append(cnn_pred)
 
                         # GNN
-                        xg_t = torch.from_numpy(X_num[0]).float().to(device)
+                        xg_t = torch.from_numpy(X_num).float().to(device)
                         with torch.no_grad():
                             gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t)
                             gnn_pred = float(gnn_out.item())
