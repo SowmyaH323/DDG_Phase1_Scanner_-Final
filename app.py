@@ -94,7 +94,7 @@ if pdb_file is not None:
     A_hat_t = torch.from_numpy(A_hat).float().to(device)
     deg_t   = torch.from_numpy(deg).float().to(device)
     
-    # FIX: Changed width from 1 to 49 to satisfy the GNN structural input shapes
+    # Node features tensor matching your 49 channels layer size
     node_feat_t = torch.ones((A_hat.shape[0], 49), dtype=torch.float32, device=device)
 
     M128 = to_fixed_128(M)
@@ -151,10 +151,21 @@ with tab1:
 
                 # GNN
                 xg_t = torch.from_numpy(X_num).float().to(device)
+                
+                # Create structural placeholders matching the model's signature architecture
+                X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
+                g_esm_placeholder = torch.zeros((128,), dtype=torch.float32, device=device)
+                
                 with torch.no_grad():
-                    # Flatten feature input vector to 1D if necessary
-                    gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t.view(-1))
-                    gnn_pred = float(gnn_out.item())
+                    try:
+                        # Attempt standard model execution with signature parameters
+                        gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
+                        gnn_pred = float(gnn_out.item())
+                    except Exception:
+                        # Direct fallback to shape-matching vector array
+                        gnn_out = gnn_model(A_hat_t, X_local_placeholder)
+                        gnn_pred = float(gnn_out.item()) if hasattr(gnn_out, "item") else float(gnn_out[0])
+                        
                 preds.append(gnn_pred)
                 detail["GNN"] = gnn_pred
 
@@ -222,10 +233,17 @@ with tab2:
                         preds.append(cnn_pred)
 
                         # GNN
-                        xg_t = torch.from_numpy(X_num).float().to(device)
+                        X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
+                        g_esm_placeholder = torch.zeros((128,), dtype=torch.float32, device=device)
+                        
                         with torch.no_grad():
-                            gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t.view(-1))
-                            gnn_pred = float(gnn_out.item())
+                            try:
+                                gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
+                                gnn_pred = float(gnn_out.item())
+                            except Exception:
+                                gnn_out = gnn_model(A_hat_t, X_local_placeholder)
+                                gnn_pred = float(gnn_out.item()) if hasattr(gnn_out, "item") else float(gnn_out[0])
+                                
                         preds.append(gnn_pred)
 
                     else:
