@@ -124,13 +124,16 @@ with tab1:
                 [a for a in AA_LIST if a != wt]
             )
 
-        if st.button("Predict ΔΔG for this mutation"):
+           if st.button("Predict ΔΔG for this mutation"):
             X_num = build_features_single(wt=wt, mt=mt, pos=int(pos))
 
-            # XGB
-            xgb_pred = float(xgb_model.predict(X_num)[0])
+            # XGB (Fixed with np.asarray)
+            X_array = np.asarray(X_num)
+            xgb_pred = float(xgb_model.predict(X_array)[0])
+            
             preds = [xgb_pred]
             detail = {"XGB": xgb_pred}
+
 
             # CNN + GNN only if PDB/contact map available
             if M4 is not None and A_hat_t is not None:
@@ -196,11 +199,14 @@ with tab2:
                     if mt == wt:
                         continue
 
-                    X_num = build_features_single(wt=wt, mt=mt, pos=pos)
+                   X_num = build_features_single(wt=wt, mt=mt, pos=pos)
 
-                    # XGB
-                    xgb_pred = float(xgb_model.predict(X_num)[0])
+                    # XGB (Fixed with np.asarray)
+                    X_array = np.asarray(X_num)
+                    xgb_pred = float(xgb_model.predict(X_array)[0])
+                    
                     preds = [xgb_pred]
+
 
                     # CNN + GNN if structural info available
                     if M4 is not None and A_hat_t is not None:
