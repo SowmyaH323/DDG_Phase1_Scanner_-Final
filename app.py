@@ -40,9 +40,8 @@ def load_models():
 
     # GNN
     device = torch.device("cpu")
-    gnn_model = SimpleGCN().to(device)
-    state_dict = torch.load(gnn_path, map_location=device)
-    gnn_model.load_state_dict(state_dict)
+    # Load the TorchScript compiled model object directly
+    gnn_model = torch.jit.load(gnn_path, map_location=device)
     gnn_model.eval()
 
     return xgb_model, cnn_model, gnn_model, device
