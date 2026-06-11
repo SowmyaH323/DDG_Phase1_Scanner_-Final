@@ -27,9 +27,9 @@ def load_models():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
     # This looks for the files in that exact same folder
-    xgb_path = os.path.join(BASE_DIR, "xgb_ddg_model.json")
-    cnn_path = os.path.join(BASE_DIR, "cnn_struct_model.keras")
-    gnn_path = os.path.join(BASE_DIR, "gnn_struct_model_light.pt")
+    xgb_path = os.path.join(BASE_DIR, "xgb_full.json")
+    cnn_path = os.path.join(BASE_DIR, "cnn_ddg_model.keras")
+    gnn_path = os.path.join(BASE_DIR, "gnn_esm_scripted.pt")
 
     # XGB
     xgb_model = xgb.XGBRegressor()
