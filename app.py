@@ -23,9 +23,13 @@ W_GNN = 0.20
 # ---------- Load models once ----------
 @st.cache_resource
 def load_models():
-    xgb_path = os.path.join("models", "xgb_ddg_model.json")
-    cnn_path = os.path.join("models", "cnn_struct_model.keras")
-    gnn_path = os.path.join("models", "gnn_struct_model_light.pt")
+    # This automatically finds the folder where app.py lives
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    
+    # This looks for the files in that exact same folder
+    xgb_path = os.path.join(BASE_DIR, "xgb_ddg_model.json")
+    cnn_path = os.path.join(BASE_DIR, "cnn_struct_model.keras")
+    gnn_path = os.path.join(BASE_DIR, "gnn_struct_model_light.pt")
 
     # XGB
     xgb_model = xgb.XGBRegressor()
