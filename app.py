@@ -15,6 +15,11 @@ from utils_ddg import (
 
 st.set_page_config(page_title="ΔΔG Mutation Scanner", layout="wide")
 
+# ---------- Ensemble weights ----------
+W_XGB = 0.45
+W_CNN = 0.35
+W_GNN = 0.20
+
 # ---------- Load models once ----------
 @st.cache_resource
 def load_models():
@@ -40,7 +45,12 @@ def load_models():
 
 xgb_model, cnn_model, gnn_model, device = load_models()
 
-st.title("ΔΔG Mutation Scanner – Ensemble (XGB + CNN + GNN)")
+st.title("ΔΔG Mutation Scanner – Ensemble (CNN + GNN + XGB)")
+
+st.caption(
+    "Negative ΔΔG indicates predicted strengthening of protein–protein binding; "
+    "positive ΔΔG indicates predicted weakening of protein–protein binding."
+)
 
 # ---------- Sidebar: inputs ----------
 st.sidebar.header("Protein inputs")
@@ -103,6 +113,7 @@ with tab1:
                 step=1
             )
             wt_default = seq[pos-1]
+
         with col2:
             wt = st.text_input("Wild-type residue", value=wt_default, max_chars=1).upper()
             mt = st.selectbox(
@@ -135,14 +146,23 @@ with tab1:
                 preds.append(gnn_pred)
                 detail["GNN"] = gnn_pred
 
-            ens = float(np.mean(preds))
+            # Weighted ensemble if all three models are available;
+            # otherwise use XGB-only prediction.
+            if len(preds) == 3:
+                ens = float(W_XGB * xgb_pred + W_CNN * cnn_pred + W_GNN * gnn_pred)
+            else:
+                ens = float(xgb_pred)
+
             std = float(np.std(preds))
 
             st.markdown("### Results")
             st.write(f"**Ensemble ΔΔG:** {ens:.3f} kcal/mol")
             st.write(f"Ensemble std (XGB/CNN/GNN disagreement): {std:.3f}")
             st.json(detail)
-            st.caption("Negative ΔΔG → stabilizing, positive ΔΔG → destabilizing (same sign as training).")
+            st.caption(
+                "Negative ΔΔG → predicted stronger protein–protein binding; "
+                "positive ΔΔG → predicted weaker protein–protein binding."
+            )
 
 # ---------- TAB 2: 19-AA scan ----------
 with tab2:
@@ -153,15 +173,19 @@ with tab2:
     else:
         max_pos = len(seq)
         col1, col2 = st.columns(2)
+
         with col1:
             start_pos = st.number_input("Start position", 1, max_pos, 1)
+
         with col2:
             end_pos = st.number_input("End position", 1, max_pos, min(max_pos, 50))
 
         if st.button("Run 19-AA scan for this region"):
             rows = []
+
             for pos in range(int(start_pos), int(end_pos) + 1):
                 wt = seq[pos-1]
+
                 if wt not in AA_LIST:
                     continue
 
@@ -170,49 +194,62 @@ with tab2:
                         continue
 
                     X_num = build_features_single(wt=wt, mt=mt, pos=pos)
+
+                    # XGB
                     xgb_pred = float(xgb_model.predict(X_num)[0])
                     preds = [xgb_pred]
 
                     # CNN + GNN if structural info available
                     if M4 is not None and A_hat_t is not None:
+                        # CNN
                         cnn_pred = float(
                             cnn_model.predict([M4, X_num], verbose=0).reshape(-1)[0]
                         )
                         preds.append(cnn_pred)
 
+                        # GNN
                         xg_t = torch.from_numpy(X_num[0]).float().to(device)
                         with torch.no_grad():
                             gnn_out = gnn_model(A_hat_t, node_feat_t, xg_t)
                             gnn_pred = float(gnn_out.item())
                         preds.append(gnn_pred)
+
                     else:
                         cnn_pred = np.nan
                         gnn_pred = np.nan
 
-                    ens = float(np.mean(preds))
+                    # Weighted ensemble if all three models are available;
+                    # otherwise use XGB-only prediction.
+                    if len(preds) == 3:
+                        ens = float(W_XGB * xgb_pred + W_CNN * cnn_pred + W_GNN * gnn_pred)
+                    else:
+                        ens = float(xgb_pred)
+
                     std = float(np.std(preds))
 
                     rows.append({
                         "pos": pos,
                         "wt": wt,
                         "mt": mt,
+                        "mutation": f"{wt}{pos}{mt}",
                         "XGB_ddG": xgb_pred,
                         "CNN_ddG": cnn_pred,
                         "GNN_ddG": gnn_pred,
-                        "ENS_3AVG_ddG": ens,
+                        "Ensemble_ddG": ens,
                         "ensemble_std": std
                     })
 
             df_scan = pd.DataFrame(rows)
+
             st.markdown("### Full scan results")
-            st.dataframe(df_scan.sort_values("ENS_3AVG_ddG"))
+            st.dataframe(df_scan.sort_values("Ensemble_ddG"))
 
-            # Pick top stabilizing mutations
-            df_stab = df_scan[df_scan["ENS_3AVG_ddG"] < -0.5].copy()
+            # Pick top predicted binding-strengthening mutations
+            df_stab = df_scan[df_scan["Ensemble_ddG"] < -0.5].copy()
             df_stab = df_stab[df_stab["ensemble_std"] < 0.7]
-            df_top10 = df_stab.sort_values("ENS_3AVG_ddG").head(10)
+            df_top10 = df_stab.sort_values("Ensemble_ddG").head(10)
 
-            st.markdown("### Top 10 stabilizing candidates")
+            st.markdown("### Top 10 predicted binding-strengthening candidates")
             st.dataframe(df_top10)
 
             # Download buttons
@@ -226,8 +263,8 @@ with tab2:
 
             csv_top = df_top10.to_csv(index=False).encode()
             st.download_button(
-                "Download top-10 stabilising CSV",
+                "Download top-10 binding-strengthening CSV",
                 data=csv_top,
-                file_name="top10_stabilising.csv",
+                file_name="top10_binding_strengthening.csv",
                 mime="text/csv"
             )
