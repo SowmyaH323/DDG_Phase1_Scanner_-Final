@@ -1,13 +1,8 @@
 streamlit
 numpy
 pandas
-biopython
 xgboost
+tensorflow-cpu
 torch
-tensorflow-cpu==2.15.0
+biopython
 scikit-learn
-py3Dmol
-matplotlib
-xgboost==2.0.3
-
-
