@@ -23,6 +23,10 @@ W_GNN = 0.20
 # ---------- Load models once ----------
 @st.cache_resource
 def load_models():
+    # Force TensorFlow to run in a lightweight, single-threaded mode to prevent freezing
+    tf.config.threading.set_inter_op_parallelism_threads(1)
+    tf.config.threading.set_intra_op_parallelism_threads(1)
+
     # This automatically finds the folder where app.py lives
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
@@ -124,7 +128,7 @@ with tab1:
                 [a for a in AA_LIST if a != wt]
             )
 
-           if st.button("Predict ΔΔG for this mutation"):
+        if st.button("Predict ΔΔG for this mutation"):
             X_num = build_features_single(wt=wt, mt=mt, pos=int(pos))
 
             # XGB (Fixed with np.asarray)
@@ -133,7 +137,6 @@ with tab1:
             
             preds = [xgb_pred]
             detail = {"XGB": xgb_pred}
-
 
             # CNN + GNN only if PDB/contact map available
             if M4 is not None and A_hat_t is not None:
@@ -199,14 +202,13 @@ with tab2:
                     if mt == wt:
                         continue
 
-                   X_num = build_features_single(wt=wt, mt=mt, pos=pos)
+                    X_num = build_features_single(wt=wt, mt=mt, pos=pos)
 
                     # XGB (Fixed with np.asarray)
                     X_array = np.asarray(X_num)
                     xgb_pred = float(xgb_model.predict(X_array)[0])
                     
                     preds = [xgb_pred]
-
 
                     # CNN + GNN if structural info available
                     if M4 is not None and A_hat_t is not None:
@@ -247,33 +249,3 @@ with tab2:
                         "Ensemble_ddG": ens,
                         "ensemble_std": std
                     })
-
-            df_scan = pd.DataFrame(rows)
-
-            st.markdown("### Full scan results")
-            st.dataframe(df_scan.sort_values("Ensemble_ddG"))
-
-            # Pick top predicted binding-strengthening mutations
-            df_stab = df_scan[df_scan["Ensemble_ddG"] < -0.5].copy()
-            df_stab = df_stab[df_stab["ensemble_std"] < 0.7]
-            df_top10 = df_stab.sort_values("Ensemble_ddG").head(10)
-
-            st.markdown("### Top 10 predicted binding-strengthening candidates")
-            st.dataframe(df_top10)
-
-            # Download buttons
-            csv_full = df_scan.to_csv(index=False).encode()
-            st.download_button(
-                "Download full scan CSV",
-                data=csv_full,
-                file_name="scan_results.csv",
-                mime="text/csv"
-            )
-
-            csv_top = df_top10.to_csv(index=False).encode()
-            st.download_button(
-                "Download top-10 binding-strengthening CSV",
-                data=csv_top,
-                file_name="top10_binding_strengthening.csv",
-                mime="text/csv"
-            )
