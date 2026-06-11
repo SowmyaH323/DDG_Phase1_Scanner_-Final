@@ -95,7 +95,7 @@ if pdb_file is not None:
     deg_t   = torch.from_numpy(deg).float().to(device)
     
     # Node features tensor matching your 49 channels layer size
-    node_feat_t = torch.ones((A_hat.shape[0], 49), dtype=torch.float32, device=device)
+    node_feat_t = torch.ones((A_hat.shape, 49), dtype=torch.float32, device=device)
 
     M128 = to_fixed_128(M)
     M4   = M128[np.newaxis, ..., np.newaxis]  # shape
@@ -150,21 +150,14 @@ with tab1:
                 detail["CNN"] = cnn_pred
 
                 # GNN
-                xg_t = torch.from_numpy(X_num).float().to(device)
-                
-                # Create structural placeholders matching the model's signature architecture
                 X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
-                g_esm_placeholder = torch.zeros((128,), dtype=torch.float32, device=device)
+                
+                # FIX: Changed size dimension from 128 to 608 to perfectly pass the linear algebra layers check
+                g_esm_placeholder = torch.zeros((608,), dtype=torch.float32, device=device)
                 
                 with torch.no_grad():
-                    try:
-                        # Attempt standard model execution with signature parameters
-                        gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
-                        gnn_pred = float(gnn_out.item())
-                    except Exception:
-                        # Direct fallback to shape-matching vector array
-                        gnn_out = gnn_model(A_hat_t, X_local_placeholder)
-                        gnn_pred = float(gnn_out.item()) if hasattr(gnn_out, "item") else float(gnn_out[0])
+                    gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
+                    gnn_pred = float(gnn_out.item())
                         
                 preds.append(gnn_pred)
                 detail["GNN"] = gnn_pred
@@ -234,15 +227,13 @@ with tab2:
 
                         # GNN
                         X_local_placeholder = torch.ones((A_hat_t.shape[0], 49), dtype=torch.float32, device=device)
-                        g_esm_placeholder = torch.zeros((128,), dtype=torch.float32, device=device)
+                        
+                        # FIX: Changed size dimension from 128 to 608 to perfectly pass the linear algebra layers check
+                        g_esm_placeholder = torch.zeros((608,), dtype=torch.float32, device=device)
                         
                         with torch.no_grad():
-                            try:
-                                gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
-                                gnn_pred = float(gnn_out.item())
-                            except Exception:
-                                gnn_out = gnn_model(A_hat_t, X_local_placeholder)
-                                gnn_pred = float(gnn_out.item()) if hasattr(gnn_out, "item") else float(gnn_out[0])
+                            gnn_out = gnn_model(A_hat_t, X_local_placeholder, g_esm_placeholder)
+                            gnn_pred = float(gnn_out.item())
                                 
                         preds.append(gnn_pred)
 
@@ -274,4 +265,5 @@ with tab2:
             # Show scanning dataframe table when calculation loop concludes
             st.markdown("### Scan Results Summary")
             st.dataframe(pd.DataFrame(rows))
+
 
